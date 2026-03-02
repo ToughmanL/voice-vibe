@@ -286,10 +286,16 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                     })
                 except Exception as e:
                     logger.error(f"❌ ASR错误: {e}", exc_info=True)
-                    await websocket.send_json({
-                        "type": "error",
-                        "content": f"语音识别失败: {str(e)}"
-                    })
+                    
+                    # 发送友好的错误提示
+                    try:
+                        await websocket.send_json({
+                            "type": "error",
+                            "content": "⚠️ 语音识别服务暂时不可用。请使用文字输入，或稍后再试。"
+                        })
+                    except:
+                        logger.error("无法发送错误消息")
+                        break
     
     except WebSocketDisconnect:
         logger.info(f"🔌 WebSocket断开: {session_id}")
@@ -421,8 +427,8 @@ def get_demo_html() -> str:
 </head>
 <body>
     <div class="container">
-        <h1>🎵 AI语音匹配平台</h1>
-        <p class="subtitle">基于语音的智能匹配系统</p>
+        <h1>🎵 VoiceVibe - AI语音匹配平台</h1>
+        <p class="subtitle">基于语音的智能匹配系统 | <span style="color: #ff6b6b;">⚠️ 语音识别服务维护中，请使用文字输入</span></p>
         
         <div class="chat-box" id="chatBox">
             <div class="message assistant">
@@ -433,7 +439,7 @@ def get_demo_html() -> str:
         <div class="input-area">
             <input type="text" id="userInput" placeholder="输入消息..." onkeypress="handleKeyPress(event)">
             <button onclick="sendMessage()">发送</button>
-            <button id="voiceBtn" class="voice-btn" onclick="toggleRecording()">🎤 录音</button>
+            <button id="voiceBtn" class="voice-btn" onclick="toggleRecording()" disabled title="语音识别服务维护中">🎤 录音</button>
         </div>
         
         <p class="status" id="status">连接中...</p>

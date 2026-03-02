@@ -1,0 +1,40 @@
+# API密钥配置（敏感信息）
+config/api_keys.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 日志和临时文件
+*.log
+logs/
+tmp/
+temp/
+
+# 数据文件
+*.db
+*.sqlite
+data/
+
+# 测试覆盖率
+htmlcov/
+.coverage
+.coverage.*
+
+# 打包
+dist/
+build/
+*.egg-info/

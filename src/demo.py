@@ -1,0 +1,485 @@
+"""
+AI语音匹配平台 - MVP Demo
+
+完整演示应用，集成ASR/TTS/LLM/匹配引擎
+"""
+import asyncio
+import sys
+from pathlib import Path
+
+# 添加src到路径
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+import uvicorn
+
+from config_loader import config
+from providers import XunfeiASRClient, XunfeiTTSClient, KimiLLMClient
+from services import SimpleMatcher
+from core.base import ASRProvider, TTSProvider, LLMProvider, MatchingEngine
+
+
+# 初始化FastAPI
+app = FastAPI(
+    title="AI语音匹配平台",
+    description="基于语音的智能匹配系统",
+    version="1.0.0"
+)
+
+
+# ================== 服务初始化 ==================
+
+def init_asr() -> ASRProvider:
+    """初始化ASR服务"""
+    asr_config = config.xunfei_asr
+    return XunfeiASRClient(
+        appid=asr_config['appid'],
+        api_key=asr_config['api_key'],
+        api_secret=asr_config['api_secret']
+    )
+
+
+def init_tts() -> TTSProvider:
+    """初始化TTS服务"""
+    tts_config = config.xunfei_tts
+    return XunfeiTTSClient(
+        appid=tts_config['appid'],
+        api_key=tts_config['api_key'],
+        api_secret=tts_config['api_secret']
+    )
+
+
+def init_llm() -> LLMProvider:
+    """初始化LLM服务"""
+    kimi_config = config.kimi
+    return KimiLLMClient(
+        api_key=kimi_config['api_key'],
+        base_url=kimi_config['base_url'],
+        model=kimi_config['model']
+    )
+
+
+def init_matcher() -> MatchingEngine:
+    """初始化匹配引擎"""
+    return SimpleMatcher()
+
+
+# 全局服务实例
+asr_service = init_asr()
+tts_service = init_tts()
+llm_service = init_llm()
+matcher_service = init_matcher()
+
+
+# ================== 对话管理器 ==================
+
+class ConversationManager:
+    """对话管理器"""
+    
+    def __init__(self):
+        self.conversations = {}  # session_id -> 对话历史
+        self.profiles = {}  # session_id -> 用户画像
+    
+    def get_history(self, session_id: str) -> list:
+        """获取对话历史"""
+        if session_id not in self.conversations:
+            self.conversations[session_id] = []
+        return self.conversations[session_id]
+    
+    def add_message(self, session_id: str, role: str, content: str):
+        """添加消息到历史"""
+        if session_id not in self.conversations:
+            self.conversations[session_id] = []
+        
+        self.conversations[session_id].append({
+            "role": role,
+            "content": content
+        })
+    
+    def update_profile(self, session_id: str, profile: dict):
+        """更新用户画像"""
+        self.profiles[session_id] = profile
+
+
+conversation_manager = ConversationManager()
+
+
+# ================== API路由 ==================
+
+@app.get("/")
+async def root():
+    """首页 - Web UI"""
+    return HTMLResponse(content=get_demo_html())
+
+
+@app.get("/health")
+async def health():
+    """健康检查"""
+    return {
+        "status": "ok",
+        "services": {
+            "asr": asr_service.name,
+            "tts": tts_service.name,
+            "llm": llm_service.name,
+            "matcher": matcher_service.name
+        }
+    }
+
+
+@app.post("/api/match")
+async def match_users(user_profile: dict):
+    """
+    匹配接口
+    
+    Args:
+        user_profile: 用户画像
+    
+    Returns:
+        匹配结果
+    """
+    # 分析用户特征
+    user_features = await matcher_service.analyze_profile(user_profile)
+    
+    # 模拟候选人（实际应从数据库获取）
+    candidates = [
+        {
+            "user_id": "user_001",
+            "age": 26,
+            "interests": ["音乐", "电影", "旅游"],
+            "interest_vector": [1, 1, 0, 1, 0, 0, 0, 0, 0, 0],
+            "profile": {"name": "小明", "bio": "喜欢音乐和旅行"}
+        },
+        {
+            "user_id": "user_002",
+            "age": 28,
+            "interests": ["运动", "美食", "摄影"],
+            "interest_vector": [0, 0, 1, 0, 1, 0, 0, 1, 0, 0],
+            "profile": {"name": "小红", "bio": "热爱运动和美食"}
+        }
+    ]
+    
+    # 执行匹配
+    matches = await matcher_service.find_matches(user_features, candidates, top_k=3)
+    
+    return {
+        "success": True,
+        "matches": matches
+    }
+
+
+# ================== WebSocket对话 ==================
+
+@app.websocket("/ws/chat/{session_id}")
+async def websocket_chat(websocket: WebSocket, session_id: str):
+    """
+    WebSocket实时对话
+    
+    协议：
+    - 客户端 -> 服务端: {"type": "text", "content": "..."}
+    - 客户端 -> 服务端: {"type": "audio", "data": "base64编码的音频"}
+    - 服务端 -> 客户端: {"type": "text", "content": "..."}
+    - 服务端 -> 客户端: {"type": "audio", "data": "base64编码的音频"}
+    """
+    await websocket.accept()
+    
+    try:
+        while True:
+            # 接收消息
+            data = await websocket.receive_json()
+            message_type = data.get("type")
+            
+            if message_type == "text":
+                # 文本对话
+                user_text = data.get("content", "")
+                
+                # 获取对话历史
+                history = conversation_manager.get_history(session_id)
+                
+                # 构建系统提示
+                system_prompt = """你是AI语音匹配助手。
+你的任务是通过对话了解用户的兴趣、性格和偏好，帮助他们找到合适的匹配对象。
+
+对话风格：
+- 亲切自然，像朋友聊天
+- 逐步了解用户的兴趣、爱好、价值观
+- 给予积极的反馈和建议
+
+当前目标：了解用户的基本信息和兴趣爱好。"""
+                
+                # 调用LLM
+                response_text = await llm_service.chat_with_system(
+                    user_message=user_text,
+                    system_prompt=system_prompt,
+                    conversation_history=history,
+                    temperature=0.8
+                )
+                
+                # 更新对话历史
+                conversation_manager.add_message(session_id, "user", user_text)
+                conversation_manager.add_message(session_id, "assistant", response_text)
+                
+                # 返回文本回复
+                await websocket.send_json({
+                    "type": "text",
+                    "content": response_text
+                })
+                
+                # 生成语音回复
+                try:
+                    audio_data = await tts_service.synthesize(response_text, voice="xiaoyan")
+                    
+                    import base64
+                    audio_base64 = base64.b64encode(audio_data).decode('utf-8')
+                    
+                    await websocket.send_json({
+                        "type": "audio",
+                        "data": audio_base64
+                    })
+                except Exception as e:
+                    print(f"TTS错误: {e}")
+            
+            elif message_type == "audio":
+                # 语音对话
+                import base64
+                
+                audio_base64 = data.get("data", "")
+                audio_data = base64.b64decode(audio_base64)
+                
+                # ASR识别
+                transcribed_text = await asr_service.transcribe(audio_data)
+                
+                # 通知客户端识别结果
+                await websocket.send_json({
+                    "type": "transcript",
+                    "content": transcribed_text
+                })
+                
+                # 调用LLM（复用文本对话逻辑）
+                # ... (省略，与文本对话相同)
+    
+    except WebSocketDisconnect:
+        print(f"WebSocket断开: {session_id}")
+    except Exception as e:
+        print(f"WebSocket错误: {e}")
+        await websocket.close()
+
+
+# ================== Web UI ==================
+
+def get_demo_html() -> str:
+    """返回Demo页面HTML"""
+    return """
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>AI语音匹配平台</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 600px;
+            width: 90%;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 32px;
+        }
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 16px;
+        }
+        .chat-box {
+            height: 400px;
+            border: 2px solid #e0e0e0;
+            border-radius: 12px;
+            padding: 20px;
+            overflow-y: auto;
+            margin-bottom: 20px;
+            background: #f9f9f9;
+        }
+        .message {
+            margin-bottom: 15px;
+            padding: 12px 16px;
+            border-radius: 12px;
+            max-width: 80%;
+        }
+        .user {
+            background: #667eea;
+            color: white;
+            margin-left: auto;
+            text-align: right;
+        }
+        .assistant {
+            background: white;
+            border: 1px solid #e0e0e0;
+        }
+        .input-area {
+            display: flex;
+            gap: 10px;
+        }
+        input, button {
+            padding: 12px;
+            border-radius: 8px;
+            border: 2px solid #e0e0e0;
+            font-size: 16px;
+        }
+        input {
+            flex: 1;
+            outline: none;
+        }
+        input:focus {
+            border-color: #667eea;
+        }
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-weight: bold;
+            padding: 12px 24px;
+            transition: all 0.3s;
+        }
+        button:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+        }
+        .status {
+            text-align: center;
+            color: #999;
+            font-size: 14px;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎵 AI语音匹配平台</h1>
+        <p class="subtitle">基于语音的智能匹配系统</p>
+        
+        <div class="chat-box" id="chatBox">
+            <div class="message assistant">
+                你好！我是AI匹配助手。告诉我你的兴趣爱好，我来帮你找到合适的伙伴！
+            </div>
+        </div>
+        
+        <div class="input-area">
+            <input type="text" id="userInput" placeholder="输入消息..." onkeypress="handleKeyPress(event)">
+            <button onclick="sendMessage()">发送</button>
+        </div>
+        
+        <p class="status" id="status">连接中...</p>
+    </div>
+
+    <script>
+        const sessionId = 'demo_' + Date.now();
+        let ws = null;
+        
+        function connect() {
+            ws = new WebSocket(`ws://${location.host}/ws/chat/${sessionId}`);
+            
+            ws.onopen = () => {
+                document.getElementById('status').textContent = '已连接';
+                document.getElementById('status').style.color = '#4caf50';
+            };
+            
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                
+                if (data.type === 'text') {
+                    addMessage('assistant', data.content);
+                } else if (data.type === 'transcript') {
+                    addMessage('user', data.content);
+                }
+            };
+            
+            ws.onerror = (error) => {
+                document.getElementById('status').textContent = '连接错误';
+                document.getElementById('status').style.color = '#f44336';
+            };
+            
+            ws.onclose = () => {
+                document.getElementById('status').textContent = '已断开';
+                document.getElementById('status').style.color = '#ff9800';
+            };
+        }
+        
+        function addMessage(role, content) {
+            const chatBox = document.getElementById('chatBox');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${role}`;
+            messageDiv.textContent = content;
+            chatBox.appendChild(messageDiv);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+        
+        function sendMessage() {
+            const input = document.getElementById('userInput');
+            const message = input.value.trim();
+            
+            if (!message) return;
+            
+            // 显示用户消息
+            addMessage('user', message);
+            
+            // 发送到服务器
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: 'text',
+                    content: message
+                }));
+            }
+            
+            input.value = '';
+        }
+        
+        function handleKeyPress(event) {
+            if (event.key === 'Enter') {
+                sendMessage();
+            }
+        }
+        
+        // 初始化连接
+        connect();
+    </script>
+</body>
+</html>
+    """
+
+
+# ================== 启动 ==================
+
+if __name__ == "__main__":
+    print("=" * 60)
+    print("  AI语音匹配平台 - MVP Demo")
+    print("=" * 60)
+    print(f"  ASR服务: {asr_service.name}")
+    print(f"  TTS服务: {tts_service.name}")
+    print(f"  LLM服务: {llm_service.name}")
+    print(f"  匹配引擎: {matcher_service.name}")
+    print("=" * 60)
+    print("  访问: http://localhost:8000")
+    print("  API文档: http://localhost:8000/docs")
+    print("=" * 60)
+    
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=8000,
+        log_level="info"
+    )

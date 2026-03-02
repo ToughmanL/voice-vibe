@@ -1,0 +1,27 @@
+# AI语音匹配平台依赖
+
+# Web框架
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+websockets==12.0
+
+# HTTP客户端
+httpx==0.26.0
+
+# 数据处理
+numpy==1.26.3
+pydantic==2.5.3
+
+# 测试
+pytest==7.4.4
+pytest-asyncio==0.23.3
+pytest-cov==4.1.0
+
+# 代码质量
+black==24.1.1
+flake8==7.0.0
+mypy==1.8.0
+
+# 可选：音频处理
+# librosa==0.10.1
+# soundfile==0.12.1

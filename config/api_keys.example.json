@@ -1,0 +1,24 @@
+{
+  "xunfei": {
+    "asr": {
+      "service": "WebSocket",
+      "appid": "你的APPID",
+      "api_secret": "你的APISecret",
+      "api_key": "你的APIKey",
+      "description": "科大讯飞语音识别"
+    },
+    "tts": {
+      "service": "WebSocket",
+      "appid": "你的APPID",
+      "api_secret": "你的APISecret",
+      "api_key": "你的APIKey",
+      "description": "科大讯飞语音合成"
+    }
+  },
+  "kimi": {
+    "api_key": "你的Kimi API密钥",
+    "base_url": "https://api.moonshot.cn/v1",
+    "model": "moonshot-v1-8k",
+    "description": "Kimi大模型（Moonshot）"
+  }
+}

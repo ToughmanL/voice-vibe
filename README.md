@@ -1,6 +1,6 @@
-# 🎵 AI语音匹配平台
+# 🎵 VoiceVibe - AI语音气场匹配平台
 
-> 基于实时语音交互的智能匹配系统 - 让AI通过对话理解你，找到最合适的伙伴
+> 基于实时语音交互的智能匹配系统 - 通过AI分析语音气场，找到与你共鸣的人
 
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -20,8 +20,8 @@
 ### 1. 克隆项目
 
 ```bash
-git clone https://github.com/yourusername/ai-match-platform.git
-cd ai-match-platform
+git clone https://github.com/ToughmaL/voice-vibe.git
+cd voice-vibe
 ```
 
 ### 2. 安装依赖
@@ -339,8 +339,8 @@ MIT License - 详见 [LICENSE](LICENSE) 文件
 
 ## 📮 联系方式
 
-- 项目主页: https://github.com/yourusername/ai-match-platform
-- 问题反馈: https://github.com/yourusername/ai-match-platform/issues
+- 项目主页: https://github.com/ToughmaL/voice-vibe
+- 问题反馈: https://github.com/ToughmaL/voice-vibe/issues
 - 邮箱: your.email@example.com
 
 ---

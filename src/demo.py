@@ -5,7 +5,17 @@ AI语音匹配平台 - MVP Demo
 """
 import asyncio
 import sys
+import logging
 from pathlib import Path
+from datetime import datetime
+
+# 配置日志
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logger = logging.getLogger(__name__)
 
 # 添加src到路径
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -183,62 +193,81 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
     - 服务端 -> 客户端: {"type": "audio", "data": "base64编码的音频"}
     """
     await websocket.accept()
+    logger.info(f"✅ WebSocket连接建立: {session_id}")
     
     try:
         while True:
             # 接收消息
             data = await websocket.receive_json()
             message_type = data.get("type")
+            logger.info(f"📨 收到消息 [{session_id}]: type={message_type}")
             
             if message_type == "text":
                 # 文本对话
                 user_text = data.get("content", "")
+                logger.info(f"💬 用户消息: {user_text[:50]}...")
                 
-                # 获取对话历史
-                history = conversation_manager.get_history(session_id)
-                
-                # 构建系统提示
-                system_prompt = """你是AI语音匹配助手。
+                try:
+                    # 获取对话历史
+                    history = conversation_manager.get_history(session_id)
+                    logger.info(f"📚 对话历史长度: {len(history)}")
+                    
+                    # 构建系统提示
+                    system_prompt = """你是VoiceVibe语音匹配助手。
 你的任务是通过对话了解用户的兴趣、性格和偏好，帮助他们找到合适的匹配对象。
 
 对话风格：
 - 亲切自然，像朋友聊天
 - 逐步了解用户的兴趣、爱好、价值观
 - 给予积极的反馈和建议
+- 简洁回复，不要太长
 
 当前目标：了解用户的基本信息和兴趣爱好。"""
-                
-                # 调用LLM
-                response_text = await llm_service.chat_with_system(
-                    user_message=user_text,
-                    system_prompt=system_prompt,
-                    conversation_history=history,
-                    temperature=0.8
-                )
-                
-                # 更新对话历史
-                conversation_manager.add_message(session_id, "user", user_text)
-                conversation_manager.add_message(session_id, "assistant", response_text)
-                
-                # 返回文本回复
-                await websocket.send_json({
-                    "type": "text",
-                    "content": response_text
-                })
-                
-                # 生成语音回复
-                try:
-                    audio_data = await tts_service.synthesize(response_text, voice="xiaoyan")
                     
-                    import base64
-                    audio_base64 = base64.b64encode(audio_data).decode('utf-8')
+                    logger.info("🤖 调用Kimi LLM...")
+                    # 调用LLM
+                    response_text = await llm_service.chat_with_system(
+                        user_message=user_text,
+                        system_prompt=system_prompt,
+                        conversation_history=history,
+                        temperature=0.8
+                    )
+                    logger.info(f"✨ LLM回复: {response_text[:100]}...")
                     
+                    # 更新对话历史
+                    conversation_manager.add_message(session_id, "user", user_text)
+                    conversation_manager.add_message(session_id, "assistant", response_text)
+                    
+                    # 返回文本回复
                     await websocket.send_json({
-                        "type": "audio",
-                        "data": audio_base64
+                        "type": "text",
+                        "content": response_text
                     })
+                    logger.info("✅ 文本回复已发送")
+                    
+                    # 生成语音回复
+                    try:
+                        logger.info("🔊 生成语音回复...")
+                        audio_data = await tts_service.synthesize(response_text, voice="xiaoyan")
+                        
+                        import base64
+                        audio_base64 = base64.b64encode(audio_data).decode('utf-8')
+                        
+                        await websocket.send_json({
+                            "type": "audio",
+                            "data": audio_base64
+                        })
+                        logger.info(f"✅ 语音回复已发送 ({len(audio_data)} bytes)")
+                    except Exception as e:
+                        logger.error(f"❌ TTS错误: {e}", exc_info=True)
+                
                 except Exception as e:
-                    print(f"TTS错误: {e}")
+                    logger.error(f"❌ LLM调用失败: {e}", exc_info=True)
+                    # 发送错误提示
+                    await websocket.send_json({
+                        "type": "error",
+                        "content": f"抱歉，出现错误: {str(e)}"
+                    })
             
             elif message_type == "audio":
                 # 语音对话
@@ -246,23 +275,30 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                 
                 audio_base64 = data.get("data", "")
                 audio_data = base64.b64decode(audio_base64)
+                logger.info(f"🎤 收到音频: {len(audio_data)} bytes")
                 
-                # ASR识别
-                transcribed_text = await asr_service.transcribe(audio_data)
-                
-                # 通知客户端识别结果
-                await websocket.send_json({
-                    "type": "transcript",
-                    "content": transcribed_text
-                })
-                
-                # 调用LLM（复用文本对话逻辑）
-                # ... (省略，与文本对话相同)
+                try:
+                    # ASR识别
+                    logger.info("🔇 语音识别中...")
+                    transcribed_text = await asr_service.transcribe(audio_data)
+                    logger.info(f"✅ 识别结果: {transcribed_text}")
+                    
+                    # 通知客户端识别结果
+                    await websocket.send_json({
+                        "type": "transcript",
+                        "content": transcribed_text
+                    })
+                except Exception as e:
+                    logger.error(f"❌ ASR错误: {e}", exc_info=True)
+                    await websocket.send_json({
+                        "type": "error",
+                        "content": f"语音识别失败: {str(e)}"
+                    })
     
     except WebSocketDisconnect:
-        print(f"WebSocket断开: {session_id}")
+        logger.info(f"🔌 WebSocket断开: {session_id}")
     except Exception as e:
-        print(f"WebSocket错误: {e}")
+        logger.error(f"❌ WebSocket错误: {e}", exc_info=True)
         await websocket.close()
 
 

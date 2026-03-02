@@ -98,11 +98,13 @@ class KimiLLMClient(LLMProvider):
             "messages": messages,
             "temperature": temperature,
             "stream": False,
+            "max_tokens": kwargs.get("max_tokens", 150),  # 限制回复长度
             **kwargs
         }
         
         try:
-            response = await self.client.post(url, json=payload)
+            # 设置较短的超时
+            response = await self.client.post(url, json=payload, timeout=5.0)
             response.raise_for_status()
             
             data = response.json()
@@ -111,6 +113,8 @@ class KimiLLMClient(LLMProvider):
         except httpx.HTTPStatusError as e:
             error_detail = e.response.json() if e.response else {}
             raise Exception(f"Kimi API错误: {error_detail}")
+        except httpx.TimeoutException:
+            raise Exception("Kimi API请求超时")
         except Exception as e:
             raise Exception(f"请求失败: {e}")
     

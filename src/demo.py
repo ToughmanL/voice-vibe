@@ -238,36 +238,32 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                     conversation_manager.add_message(session_id, "user", user_text)
                     conversation_manager.add_message(session_id, "assistant", response_text)
                     
-                    # 返回文本回复
-                    await websocket.send_json({
-                        "type": "text",
-                        "content": response_text
-                    })
-                    logger.info("✅ 文本回复已发送")
-                    
-                    # 生成语音回复
+                    # 检查连接是否仍然活跃
                     try:
-                        logger.info("🔊 生成语音回复...")
-                        audio_data = await tts_service.synthesize(response_text, voice="xiaoyan")
-                        
-                        import base64
-                        audio_base64 = base64.b64encode(audio_data).decode('utf-8')
-                        
+                        # 返回文本回复
                         await websocket.send_json({
-                            "type": "audio",
-                            "data": audio_base64
+                            "type": "text",
+                            "content": response_text
                         })
-                        logger.info(f"✅ 语音回复已发送 ({len(audio_data)} bytes)")
-                    except Exception as e:
-                        logger.error(f"❌ TTS错误: {e}", exc_info=True)
+                        logger.info("✅ 文本回复已发送")
+                    except Exception as send_error:
+                        logger.warning(f"⚠️ 发送失败，连接可能已关闭: {send_error}")
+                        break
+                    
+                    # 跳过TTS（避免超时）
+                    logger.info("⏭️ 跳过语音生成（避免超时）")
                 
                 except Exception as e:
                     logger.error(f"❌ LLM调用失败: {e}", exc_info=True)
-                    # 发送错误提示
-                    await websocket.send_json({
-                        "type": "error",
-                        "content": f"抱歉，出现错误: {str(e)}"
-                    })
+                    # 检查连接再发送错误
+                    try:
+                        await websocket.send_json({
+                            "type": "error",
+                            "content": f"抱歉，出现错误: {str(e)}"
+                        })
+                    except:
+                        logger.error("无法发送错误消息，连接已关闭")
+                        break
             
             elif message_type == "audio":
                 # 语音对话

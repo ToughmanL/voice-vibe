@@ -4,7 +4,11 @@
 from typing import Dict, Any, List
 import numpy as np
 
-from ..core.base import MatchingEngine
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from core.base import MatchingEngine
 
 
 class SimpleMatcher(MatchingEngine):

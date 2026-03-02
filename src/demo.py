@@ -391,6 +391,26 @@ def get_demo_html() -> str:
             background: #5568d3;
             transform: translateY(-2px);
         }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .voice-btn {
+            background: #ff6b6b;
+            min-width: 100px;
+        }
+        .voice-btn:hover {
+            background: #ee5a5a;
+        }
+        .voice-btn.recording {
+            background: #f44336;
+            animation: pulse 1s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
         .status {
             text-align: center;
             color: #999;
@@ -413,6 +433,7 @@ def get_demo_html() -> str:
         <div class="input-area">
             <input type="text" id="userInput" placeholder="输入消息..." onkeypress="handleKeyPress(event)">
             <button onclick="sendMessage()">发送</button>
+            <button id="voiceBtn" class="voice-btn" onclick="toggleRecording()">🎤 录音</button>
         </div>
         
         <p class="status" id="status">连接中...</p>
@@ -421,6 +442,9 @@ def get_demo_html() -> str:
     <script>
         const sessionId = 'demo_' + Date.now();
         let ws = null;
+        let mediaRecorder = null;
+        let audioChunks = [];
+        let isRecording = false;
         
         function connect() {
             ws = new WebSocket(`ws://${location.host}/ws/chat/${sessionId}`);
@@ -437,6 +461,9 @@ def get_demo_html() -> str:
                     addMessage('assistant', data.content);
                 } else if (data.type === 'transcript') {
                     addMessage('user', data.content);
+                } else if (data.type === 'audio') {
+                    // 播放语音回复
+                    playAudio(data.data);
                 }
             };
             
@@ -484,6 +511,72 @@ def get_demo_html() -> str:
             if (event.key === 'Enter') {
                 sendMessage();
             }
+        }
+        
+        // 语音录制功能
+        async function toggleRecording() {
+            const voiceBtn = document.getElementById('voiceBtn');
+            
+            if (!isRecording) {
+                // 开始录音
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    mediaRecorder = new MediaRecorder(stream);
+                    audioChunks = [];
+                    
+                    mediaRecorder.ondataavailable = (event) => {
+                        audioChunks.push(event.data);
+                    };
+                    
+                    mediaRecorder.onstop = async () => {
+                        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                        const reader = new FileReader();
+                        
+                        reader.onloadend = () => {
+                            const base64Audio = reader.result.split(',')[1];
+                            
+                            // 发送音频到服务器
+                            if (ws && ws.readyState === WebSocket.OPEN) {
+                                ws.send(JSON.stringify({
+                                    type: 'audio',
+                                    data: base64Audio
+                                }));
+                                
+                                document.getElementById('status').textContent = '识别中...';
+                            }
+                        };
+                        
+                        reader.readAsDataURL(audioBlob);
+                        
+                        // 停止所有音轨
+                        stream.getTracks().forEach(track => track.stop());
+                    };
+                    
+                    mediaRecorder.start();
+                    isRecording = true;
+                    voiceBtn.textContent = '⏹️ 停止';
+                    voiceBtn.classList.add('recording');
+                    document.getElementById('status').textContent = '录音中...';
+                    
+                } catch (error) {
+                    console.error('录音失败:', error);
+                    alert('无法访问麦克风，请检查权限设置');
+                }
+            } else {
+                // 停止录音
+                if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                    mediaRecorder.stop();
+                    isRecording = false;
+                    voiceBtn.textContent = '🎤 录音';
+                    voiceBtn.classList.remove('recording');
+                }
+            }
+        }
+        
+        // 播放语音
+        function playAudio(base64Audio) {
+            const audio = new Audio('data:audio/wav;base64,' + base64Audio);
+            audio.play().catch(error => console.error('播放失败:', error));
         }
         
         // 初始化连接

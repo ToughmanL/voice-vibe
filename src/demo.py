@@ -428,7 +428,7 @@ def get_demo_html() -> str:
 <body>
     <div class="container">
         <h1>🎵 VoiceVibe - AI语音匹配平台</h1>
-        <p class="subtitle">基于语音的智能匹配系统 | <span style="color: #ff6b6b;">⚠️ 语音识别服务维护中，请使用文字输入</span></p>
+        <p class="subtitle">基于语音的智能匹配系统 | <span style="color: #4caf50;">✅ 文字对话正常 | ⚠️ 语音识别可能较慢</span></p>
         
         <div class="chat-box" id="chatBox">
             <div class="message assistant">
@@ -439,7 +439,7 @@ def get_demo_html() -> str:
         <div class="input-area">
             <input type="text" id="userInput" placeholder="输入消息..." onkeypress="handleKeyPress(event)">
             <button onclick="sendMessage()">发送</button>
-            <button id="voiceBtn" class="voice-btn" onclick="toggleRecording()" disabled title="语音识别服务维护中">🎤 录音</button>
+            <button id="voiceBtn" class="voice-btn" onclick="toggleRecording()">🎤 录音</button>
         </div>
         
         <p class="status" id="status">连接中...</p>

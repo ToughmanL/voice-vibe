@@ -65,8 +65,11 @@ class XunfeiASRClient(ASRProvider):
         now = datetime.now(timezone.utc)
         date = now.strftime('%a, %d %b %Y %H:%M:%S GMT')
         
+        # 使用推荐的主机名
+        host = "iat-api.xfyun.cn"
+        
         # 拼接签名原文
-        signature_origin = f"host: ws-api.xfyun.cn\ndate: {date}\nGET /v2/iat HTTP/1.1"
+        signature_origin = f"host: {host}\ndate: {date}\nGET /v2/iat HTTP/1.1"
         
         # 使用HMAC-SHA256计算签名
         signature_sha = hmac.new(
@@ -93,16 +96,22 @@ class XunfeiASRClient(ASRProvider):
         params = {
             "authorization": authorization,
             "date": date,
-            "host": "ws-api.xfyun.cn"
+            "host": host
         }
         
-        return f"wss://ws-api.xfyun.cn/v2/iat?{urlencode(params)}"
+        return f"wss://{host}/v2/iat?{urlencode(params)}"
     
     async def _connect(self):
         """建立WebSocket连接"""
-        if self.ws is None or self.ws.closed:
+        # websockets 15.0.1 使用 state 属性检查连接状态
+        if self.ws is None or self.ws.state.name != "OPEN":
             url = self._generate_auth_url()
-            self.ws = await websockets.connect(url)
+            # 减少超时时间，避免用户等待太久
+            self.ws = await websockets.connect(
+                url,
+                open_timeout=10,  # 从30秒减少到10秒
+                close_timeout=5
+            )
     
     async def transcribe(
         self,
@@ -255,7 +264,7 @@ class XunfeiASRClient(ASRProvider):
             print(f"流式识别错误: {e}")
             raise
         finally:
-            if self.ws and not self.ws.closed:
+            if self.ws and self.ws.state.name == "OPEN":
                 await self.ws.close()
     
     @staticmethod
@@ -267,5 +276,5 @@ class XunfeiASRClient(ASRProvider):
     
     async def close(self):
         """关闭连接"""
-        if self.ws and not self.ws.closed:
+        if self.ws and self.ws.state.name == "OPEN":
             await self.ws.close()

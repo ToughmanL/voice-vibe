@@ -109,9 +109,13 @@ class XunfeiTTSClient(TTSProvider):
     
     async def _connect(self):
         """建立WebSocket连接"""
-        if self.ws is None or self.ws.closed:
+        if self.ws is None or self.ws.state.name != "OPEN":
             url = self._generate_auth_url()
-            self.ws = await websockets.connect(url)
+            self.ws = await websockets.connect(
+                url,
+                open_timeout=30,
+                close_timeout=10
+            )
     
     async def synthesize(
         self,
@@ -215,7 +219,7 @@ class XunfeiTTSClient(TTSProvider):
             print(f"TTS合成错误: {e}")
             raise
         finally:
-            if self.ws and not self.ws.closed:
+            if self.ws and self.ws.state.name == "OPEN":
                 await self.ws.close()
     
     async def close(self):
